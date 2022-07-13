@@ -316,3 +316,42 @@ end |> Core.Compiler.is_effect_free
 end |> Core.Compiler.is_consistent
 
 @test Core.Compiler.is_consistent(Base.infer_effects(setindex!, (Base.RefValue{Int}, Int)))
+
+@testset "effects analysis on array ops" begin
+
+@testset "effects analysis on array construction" begin
+
+@noinline construct_array(@nospecialize(T), args...) = Array{T}(undef, args...)
+
+# should eliminate safe but dead allocations
+let good_dims = 1:10
+    for dim in good_dims, N in 0:10
+        dims = ntuple(i->dim, N)
+        @test @eval Base.infer_effects() do
+            $construct_array(Int, $(dims...))
+        end |> Core.Compiler.is_removable_if_unused
+        @test @eval fully_eliminated() do
+            $construct_array(Int, $(dims...))
+            nothing
+        end
+    end
+end
+
+# should analyze throwness correctly
+let bad_dims = [-1, typemax(Int)]
+    for dim in bad_dims, N in 1:10
+        dims = ntuple(i->dim, N)
+        @test @eval Base.infer_effects() do
+            $construct_array(Int, $(dims...))
+        end |> !Core.Compiler.is_removable_if_unused
+        @test @eval !fully_eliminated() do
+            $construct_array(Int, $(dims...))
+            nothing
+        end
+        @test_throws "invalid Array" @eval $construct_array(Int, $(dims...))
+    end
+end
+
+end # @testset "effects analysis on array construction" begin
+
+end # @testset "effects analysis on array ops" begin
